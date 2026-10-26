@@ -1,11 +1,15 @@
 #nullable enable
+using System;
 using System.Net.Mail;
 
-
-/// <summary>Email / password checks (standalone copy for mail Verify; no Godot dependencies).</summary>
+/// <summary>
+/// Email / password checks (standalone copy for mail Verify; no Godot dependencies).
+/// </summary>
 public static class LoginValidation
 {
-    public const int MinPasswordLength = 6;
+    public const int MinPasswordLength = 6; // Firebase Auth minimum
+
+    public const string PasswordTooShort = "Password must be at least {0} characters";
 
     public static string? Email(string input)
     {
@@ -35,6 +39,7 @@ public static class LoginValidation
     {
         if (string.IsNullOrWhiteSpace(input))
             return "The password field is empty";
+
         return null;
     }
 
@@ -43,7 +48,7 @@ public static class LoginValidation
         if (Password(input) is string error)
             return error;
         if (input.Length < MinPasswordLength)
-            return $"Password must be at least {MinPasswordLength} characters";
+            return PasswordTooShort;
         return null;
     }
 

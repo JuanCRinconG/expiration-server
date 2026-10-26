@@ -22,6 +22,8 @@ All C# types live in namespace **`ExpirationServer`**.
 
 ### Environment (secrets / infra)
 
+Apply User env vars once via `chem-classify`’s `Apply-ChemClassifyEnv.ps1` + `env.secrets.json` (full disk paths as top-level keys; fire-and-forget — see that repo’s Quick setup). Prefer **At log on** Task Scheduler so those User variables are available.
+
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `GOOGLE_APPLICATION_CREDENTIALS` | yes | Service account JSON path |

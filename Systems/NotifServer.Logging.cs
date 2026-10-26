@@ -75,12 +75,12 @@ public static partial class NotifServer
                 if (!_loggedWriteFailure)
                 {
                     _loggedWriteFailure = true;
-                    Console.Error.WriteLine(
+                    BackendLog.Error(
                         $"[{Stamp()}] WARN  Could not write log file '{path}': {ex.Message}. "
                         + "Further log I/O errors are suppressed; falling back to stderr for this line.");
                 }
 
-                Console.Error.WriteLine(line);
+                BackendLog.Error(line);
             }
         }
     }

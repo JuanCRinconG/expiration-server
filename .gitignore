@@ -1,9 +1,10 @@
+# Godot 4+ specific ignores
+.godot/
+.vscode/
+.cursor/
+APIKeys/
+env.secrets.json
+/android/
+addons/
 bin/
 obj/
-publish/
-*.user
-.vs/
-.cursor/
-.vscode/
-expiration-settings.json
-logs/

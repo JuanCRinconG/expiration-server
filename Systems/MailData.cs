@@ -1,6 +1,4 @@
 #nullable enable
-
-
 /// <summary>Outbound mail payload (standalone copy; no Godot dependencies).</summary>
 public class MailData
 {
@@ -26,7 +24,8 @@ public class MailData
         return LoginValidation.Email(Receiver) is null;
     }
 
-    public Task<MailSendResult> SendAsync() => Mail.SendMail(this);
+    public async Task<MailSendResult> SendAsync()
+        => await Mail.SendMail(this);
 
     public async void Send()
     {
