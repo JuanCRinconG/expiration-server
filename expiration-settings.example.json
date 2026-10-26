@@ -1,0 +1,9 @@
+{
+  "timeZone": "SA Pacific Standard Time",
+  "runHour": 12,
+  "notifyWindowDays": 30,
+  "logDirectory": "logs",
+  "recipients": [
+    "lab-manager@universidad.edu"
+  ]
+}

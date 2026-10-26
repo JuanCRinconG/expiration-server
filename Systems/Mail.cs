@@ -7,28 +7,29 @@ using SmtpClient = MailKit.Net.Smtp.SmtpClient;
 /// <summary>SMTP helper (standalone copy; no Godot dependencies).</summary>
 public static class Mail
 {
-    public static string? Host = Environment.GetEnvironmentVariable("SMTP_HOST");
-    public static int Port = int.Parse(Environment.GetEnvironmentVariable("SMTP_PORT") ?? "587");
-    public static string? User = Environment.GetEnvironmentVariable("SMTP_USER");
-    public static string? Pass = Environment.GetEnvironmentVariable("SMTP_PASS");
-    public static string? From = Environment.GetEnvironmentVariable("SMTP_FROM");
-
     /// <summary>
     /// Sends <paramref name="sendableMail"/> over SMTP. Returns a result on validation or transport
     /// failure instead of throwing for expected misconfiguration / server errors.
+    /// SMTP credentials are read from the environment for this call only (not kept on the type).
     /// </summary>
     public static async Task<MailSendResult> SendMail(MailData sendableMail)
     {
-        if (ValidateConfiguration() is string configError)
+        string? host = Environment.GetEnvironmentVariable("SMTP_HOST");
+        int port = int.Parse(Environment.GetEnvironmentVariable("SMTP_PORT") ?? "587");
+        string? user = Environment.GetEnvironmentVariable("SMTP_USER");
+        string? pass = Environment.GetEnvironmentVariable("SMTP_PASS");
+        string? from = Environment.GetEnvironmentVariable("SMTP_FROM");
+
+        if (ValidateConfiguration(host, port, user, pass, from) is string configError)
             return MailSendResult.Fail(configError);
 
         if (ValidateMailData(sendableMail) is string dataError)
             return MailSendResult.Fail(dataError);
 
-        string smtpHost = Host!;
-        string smtpUser = User!;
-        string smtpPass = Pass!;
-        string smtpFrom = From!;
+        string smtpHost = host!;
+        string smtpUser = user!;
+        string smtpPass = pass!;
+        string smtpFrom = from!;
 
         try
         {
@@ -39,7 +40,7 @@ public static class Mail
             mailMessage.Body = new TextPart("plain") { Text = sendableMail.Body };
 
             using var client = new SmtpClient();
-            await client.ConnectAsync(smtpHost, Port, MailKit.Security.SecureSocketOptions.StartTls);
+            await client.ConnectAsync(smtpHost, port, MailKit.Security.SecureSocketOptions.StartTls);
             await client.AuthenticateAsync(smtpUser, smtpPass);
             await client.SendAsync(mailMessage);
             await client.DisconnectAsync(true);
@@ -67,22 +68,27 @@ public static class Mail
         }
     }
 
-    private static string? ValidateConfiguration()
+    private static string? ValidateConfiguration(
+        string? host,
+        int port,
+        string? user,
+        string? pass,
+        string? from)
     {
-        if (string.IsNullOrWhiteSpace(Host))
+        if (string.IsNullOrWhiteSpace(host))
             return "SMTP_HOST is not set.";
-        if (Port is < 1 or > 65535)
+        if (port is < 1 or > 65535)
             return "SMTP_PORT must be between 1 and 65535.";
-        if (string.IsNullOrWhiteSpace(User))
+        if (string.IsNullOrWhiteSpace(user))
             return "SMTP_USER is not set.";
-        if (string.IsNullOrWhiteSpace(Pass))
+        if (string.IsNullOrWhiteSpace(pass))
             return "SMTP_PASS is not set.";
-        if (string.IsNullOrWhiteSpace(From))
+        if (string.IsNullOrWhiteSpace(from))
             return "SMTP_FROM is not set.";
 
         try
         {
-            _ = new MailAddress(From);
+            _ = new MailAddress(from);
         }
         catch (FormatException)
         {

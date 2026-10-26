@@ -1,34 +1,70 @@
 # Expiration notification server — setup
 
-Standalone **.NET 8** console repo (not part of ChemClassify / Godot). Once per day at a configurable local hour (default **12:00**), it queries Firestore for active SDS with `expiresAt` within the notify window (and already expired), then emails a digest via the local `Mail` / `MailData` copies under namespace `ExpirationServer`.
+Standalone **.NET 8** console repo (not part of ChemClassify / Godot). Once per day at a configurable local hour (default **12:00**), it queries Firestore for active SDS with `expiresAt` within the notify window (and already expired), then emails a **batched digest** (one mail per recipient listing all matching SDS) via the local `Mail` / `MailData` copies under namespace `ExpirationServer`.
 
 ## Layout
 
 | File | Role |
 | --- | --- |
-| `ExpirationNotifServer.cs` | Entry point / daily daemon |
-| `Mail.cs` | SMTP send + `MailSendResult` |
-| `MailData.cs` | Message payload |
-| `LoginValidation.cs` | Email domain check used by `MailData.Verify` |
+| `Systems/NotifServer.Expiration.cs` | Entry point / daily daemon / digest (partial `NotifServer`) |
+| `Systems/NotifServer.MailCleanup.cs` | IMAP Sent prune + Inbox admin warning (partial) |
+| `Systems/NotifServer.Logging.cs` | Monthly TXT file logging (partial) |
+| `Systems/Mail.cs` | SMTP send + `MailSendResult` (env read per send) |
+| `Systems/MailData.cs` | Message payload |
+| `Systems/LoginValidation.cs` | Email domain check used by `MailData.Verify` |
+| `expiration-settings.example.json` | Template for admin settings (copy → `expiration-settings.json`) |
 | `Register-Autostart.ps1` | Windows Task Scheduler at logon |
-| `ExpirationServer.csproj` | Console project |
+| `ExpirationServer.csproj` | Console project (exe name `ExpirationNotifServer`) |
 
 All C# types live in namespace **`ExpirationServer`**.
 
 ## Prerequisites
 
+### Environment (secrets / infra)
+
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `GOOGLE_APPLICATION_CREDENTIALS` | yes | Service account JSON path |
 | `FIREBASE_PROJECT_ID` | yes | Firestore project id (`GOOGLE_CLOUD_PROJECT` / `GCLOUD_PROJECT` also work) |
-| `EXPIRATION_ALERT_TO` | yes | One or more recipient emails, comma-separated |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | yes | SMTP |
-| `EXPIRATION_TIMEZONE` | no | Time zone id (default `UTC`) |
-| `EXPIRATION_RUN_HOUR` | no | Local hour `0`–`23` (default `12`) |
-| `EXPIRATION_NOTIFY_WINDOW_DAYS` | no | Days ahead (default `30`) |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | yes | SMTP (IMAP uses the same host + user/pass) |
+| `IMAP_PORT` | no | IMAP port on `SMTP_HOST` (default `993`; used only by `NotifServer.MailCleanup`) |
 | `ALLOWED_DOMAIN` | no | Only if you call `MailData.Verify` |
 
 Firestore index: collection `sds`, fields `active` Asc + `expiresAt` Asc (see ChemClassify `FirebaseSetupPlan.md`).
+
+### Admin settings (JSON file)
+
+Place `expiration-settings.json` next to the published exe (or pass `--config <path>`). Copy from the shipped example:
+
+```powershell
+Copy-Item .\expiration-settings.example.json .\expiration-settings.json
+# After publish:
+Copy-Item .\publish\expiration-settings.example.json .\publish\expiration-settings.json
+```
+
+Example:
+
+```json
+{
+  "timeZone": "SA Pacific Standard Time",
+  "runHour": 12,
+  "notifyWindowDays": 30,
+  "logDirectory": "logs",
+  "recipients": [
+    "lab-manager@universidad.edu"
+  ]
+}
+```
+
+| Field | Required | Notes |
+| --- | --- | --- |
+| `timeZone` | no (default `UTC`) | Windows e.g. `SA Pacific Standard Time`; Linux e.g. `America/Bogota` |
+| `runHour` | no (default `12`) | Local hour `0`–`23` in `timeZone` |
+| `notifyWindowDays` | no (default `30`) | Days ahead to include (`1`–`365`) |
+| `logDirectory` | no (default `logs`) | Folder for monthly TXT logs; relative paths are under the exe directory |
+| `recipients` | yes | Non-empty JSON array of emails |
+
+The daemon **reloads** this file each cycle, so schedule / window / recipients can change without restarting.
 
 ### Time zone examples
 
@@ -38,24 +74,13 @@ Firestore index: collection `sds`, fields `active` Asc + `expiresAt` Asc (see Ch
 | Linux / macOS | `America/Bogota` |
 | UTC | `UTC` |
 
-### Set alert recipient (PowerShell)
-
-```powershell
-[System.Environment]::SetEnvironmentVariable("EXPIRATION_ALERT_TO", "lab-manager@universidad.edu", "User")
-[System.Environment]::SetEnvironmentVariable("EXPIRATION_TIMEZONE", "SA Pacific Standard Time", "User")
-[System.Environment]::SetEnvironmentVariable("EXPIRATION_RUN_HOUR", "12", "User")
-[System.Environment]::SetEnvironmentVariable("EXPIRATION_NOTIFY_WINDOW_DAYS", "30", "User")
-
-$env:EXPIRATION_ALERT_TO = [System.Environment]::GetEnvironmentVariable("EXPIRATION_ALERT_TO", "User")
-$env:EXPIRATION_TIMEZONE = [System.Environment]::GetEnvironmentVariable("EXPIRATION_TIMEZONE", "User")
-$env:EXPIRATION_RUN_HOUR = [System.Environment]::GetEnvironmentVariable("EXPIRATION_RUN_HOUR", "User")
-$env:EXPIRATION_NOTIFY_WINDOW_DAYS = [System.Environment]::GetEnvironmentVariable("EXPIRATION_NOTIFY_WINDOW_DAYS", "User")
-```
-
 ## Build / run
 
 ```powershell
 cd <this-repo>
+Copy-Item .\expiration-settings.example.json .\expiration-settings.json
+# Edit recipients / timezone / window as needed
+
 dotnet build .\ExpirationServer.csproj -c Release
 
 # One-shot test
@@ -63,18 +88,23 @@ dotnet run --project .\ExpirationServer.csproj -c Release -- --once
 
 # Daemon
 dotnet run --project .\ExpirationServer.csproj -c Release
+
+# Alternate config path
+dotnet run --project .\ExpirationServer.csproj -c Release -- --config D:\path\to\expiration-settings.json --once
 ```
 
 Publish:
 
 ```powershell
 dotnet publish .\ExpirationServer.csproj -c Release -o .\publish
+Copy-Item .\publish\expiration-settings.example.json .\publish\expiration-settings.json
+# Edit .\publish\expiration-settings.json
 .\publish\ExpirationNotifServer.exe --once
 ```
 
 ## Autostart (Windows VM)
 
-Prefer **At log on** so User environment variables are available.
+Prefer **At log on** so User environment variables (Firebase / SMTP credentials) are available. Admin schedule/recipients live in `expiration-settings.json` next to the exe.
 
 ```powershell
 .\Register-Autostart.ps1
@@ -88,8 +118,33 @@ Remove:
 Unregister-ScheduledTask -TaskName "ChemClassifyExpirationNotif" -Confirm:$false
 ```
 
+## Logging
+
+Operational output is written to monthly TXT files under `logDirectory` from JSON (default `logs` next to the exe):
+
+```text
+<logDirectory>/expiration-notif-YYYY-MM.txt
+```
+
+- One file per **UTC** calendar month; daily runs append to the current month’s file.
+- At month change a new file is created automatically; old months are kept.
+- Relative `logDirectory` values are resolved from the exe folder; absolute paths are allowed.
+- Changing `logDirectory` in JSON is picked up on the next daemon reload cycle.
+- Console only prints the current log path at startup (plus `--help`).
+
+## Mailbox maintenance (IMAP)
+
+After each digest cycle (including `--once`, even when no SDS mail was sent):
+
+1. Connect IMAP to **`SMTP_HOST`:`IMAP_PORT`** with `SMTP_USER` / `SMTP_PASS`.
+2. **Sent:** delete messages older than **1 day** (never invents folder names — uses the server’s Sent special folder).
+3. **Inbox:** never deleted. If Inbox has any messages, the daemon logs a warning and emails the JSON `recipients` (no message bodies included).
+
+Mailbox maintenance failures are logged only; they do not override the digest exit code.
+
 ## Notes
 
 - Query: `active == true` AND `expiresAt <= (UTC today + window days)`.
 - Empty result sets skip sending mail.
+- Matching SDS are batched into **one digest body**; that digest is sent once per `recipients` entry (not one mail per SDS).
 - Failed SMTP sends log `MailSendResult.ErrorMessage`.

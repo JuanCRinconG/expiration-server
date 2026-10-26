@@ -5,3 +5,5 @@ publish/
 .vs/
 .cursor/
 .vscode/
+expiration-settings.json
+logs/
