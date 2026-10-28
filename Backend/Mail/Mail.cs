@@ -5,6 +5,8 @@ using System.Threading.Tasks;
 using MimeKit;
 using SmtpClient = MailKit.Net.Smtp.SmtpClient;
 
+namespace Backend;
+
 /// <summary>SMTP helper (standalone copy; no Godot dependencies).</summary>
 public static class Mail
 {

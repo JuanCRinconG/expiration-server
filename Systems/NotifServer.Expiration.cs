@@ -2,6 +2,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Backend;
 using FirebaseAdmin;
 using Google.Apis.Auth.OAuth2;
 using Google.Cloud.Firestore;
@@ -9,7 +10,7 @@ using Google.Cloud.Firestore;
 
 /// <summary>
 /// Standalone (non-Godot) daily job: query Firestore for active SDS nearing / past expiration
-/// and email a digest via <see cref="Mail"/>. Mailbox IMAP maintenance lives in a partial.
+/// and email a digest via <see cref="Backend.Mail"/>. Mailbox IMAP maintenance lives in a partial.
 /// </summary>
 public static partial class NotifServer
 {

@@ -1,5 +1,8 @@
 #nullable enable
-/// <summary>Outbound mail payload (standalone copy; no Godot dependencies).</summary>
+using System.Threading.Tasks;
+
+namespace Backend;
+
 public class MailData
 {
     public string Receiver = string.Empty;
@@ -9,7 +12,7 @@ public class MailData
     public string Body = string.Empty;
 
     /// <summary>
-    /// Pre-check: non-empty fields + allowed-domain email (<see cref="LoginValidation.Email"/>).
+    /// App-side pre-check (TFA / login flows): non-empty fields + allowed-domain email.
     /// SMTP send still validates independently inside <see cref="Mail.SendMail"/>.
     /// </summary>
     public bool Verify()
