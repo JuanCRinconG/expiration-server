@@ -16,8 +16,8 @@ public static partial class NotifServer
     private static readonly TimeSpan SentRetention = TimeSpan.FromDays(1);
 
     /// <summary>
-    /// Soft-fail mailbox maintenance after a digest cycle. Failures are logged only;
-    /// they do not change the digest exit code.
+    /// Soft-fail mailbox maintenance after an alert cycle. Failures are logged only;
+    /// they do not change the alert exit code.
     /// </summary>
     private static async Task RunMailboxMaintenanceAsync(ServerSettings settings)
     {

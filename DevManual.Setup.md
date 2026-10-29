@@ -1,12 +1,13 @@
 # Expiration notification server — setup
 
-Standalone **.NET 8** console repo (not part of ChemClassify / Godot). Once per day at a configurable local hour (default **12:00**), it queries Firestore for active SDS with `expiresAt` within the notify window (and already expired), then emails a **batched digest** (one mail per recipient listing all matching SDS) via the local `Mail` / `MailData` copies under namespace `ExpirationServer`.
+Standalone **.NET 8** console repo (not part of ChemClassify / Godot). Once per day at a configurable local hour (default **12:00**), it loads **`__SYSTEM__/alert`**, evaluates configured **rules** against **sources** (partitioned inventory paths such as `__DATA__/default/items`), then emails a **batched alert** (one mail per recipient) via the local `Mail` / `MailData` copies under namespace `ExpirationServer`.
 
 ## Layout
 
 | File | Role |
 | --- | --- |
-| `Systems/NotifServer.Expiration.cs` | Entry point / daily daemon / digest (partial `NotifServer`) |
+| `Systems/NotifServer.Expiration.cs` | Entry point / daily daemon / settings (partial `NotifServer`) |
+| `Systems/NotifServer.Alert.cs` | Rule evaluation and sectioned alert mail (partial `NotifServer`) |
 | `Systems/NotifServer.MailCleanup.cs` | IMAP Sent prune + Inbox admin warning (partial) |
 | `Systems/NotifServer.Logging.cs` | Monthly TXT file logging (partial) |
 | `Systems/Mail.cs` | SMTP send + `MailSendResult` (env read per send) |
@@ -32,7 +33,7 @@ Apply User env vars once via `chem-classify`’s `Apply-ChemClassifyEnv.ps1` + `
 | `IMAP_PORT` | no | IMAP port on `SMTP_HOST` (default `993`; used only by `NotifServer.MailCleanup`) |
 | `ALLOWED_DOMAIN` | no | Only if you call `MailData.Verify` |
 
-Firestore index: collection `sds`, fields `active` Asc + `expiresAt` Asc (see ChemClassify `FirebaseSetupPlan.md`).
+Firestore: seed **`__SYSTEM__/alert`** (rules + sources) via desktop **Notification setup**. Per-source composite indexes may be required when Firestore prompts (typically `active` on each inventory collection).
 
 ### Admin settings (JSON file)
 
@@ -136,17 +137,17 @@ Operational output is written to monthly TXT files under `logDirectory` from JSO
 
 ## Mailbox maintenance (IMAP)
 
-After each digest cycle (including `--once`, even when no SDS mail was sent):
+After each alert cycle (including `--once`, even when no SDS mail was sent):
 
 1. Connect IMAP to **`SMTP_HOST`:`IMAP_PORT`** with `SMTP_USER` / `SMTP_PASS`.
 2. **Sent:** delete messages older than **1 day** (never invents folder names — uses the server’s Sent special folder).
 3. **Inbox:** never deleted. If Inbox has any messages, the daemon logs a warning and emails the JSON `recipients` (no message bodies included).
 
-Mailbox maintenance failures are logged only; they do not override the digest exit code.
+Mailbox maintenance failures are logged only; they do not override the alert exit code.
 
 ## Notes
 
 - Query: `active == true` AND `expiresAt <= (UTC today + window days)`.
 - Empty result sets skip sending mail.
-- Matching SDS are batched into **one digest body**; that digest is sent once per `recipients` entry (not one mail per SDS).
+- Matching SDS are batched into **one alert body**; that alert is sent once per `recipients` entry (not one mail per SDS).
 - Failed SMTP sends log `MailSendResult.ErrorMessage`.

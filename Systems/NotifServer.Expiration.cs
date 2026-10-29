@@ -1,20 +1,17 @@
 #nullable enable
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Backend;
 using FirebaseAdmin;
-using Google.Apis.Auth.OAuth2;
-using Google.Cloud.Firestore;
 
 
 /// <summary>
-/// Standalone (non-Godot) daily job: query Firestore for active SDS nearing / past expiration
-/// and email a digest via <see cref="Backend.Mail"/>. Mailbox IMAP maintenance lives in a partial.
+/// Standalone (non-Godot) daily job: load <c>__SYSTEM__/alert</c>, evaluate configured rules via
+/// <see cref="BackendServices.Database"/>, and email a sectioned alert via <see cref="Backend.Mail"/>.
+/// Mailbox IMAP maintenance lives in a partial.
 /// </summary>
 public static partial class NotifServer
 {
-    private const string CollectionName = "sds";
     private const string DefaultConfigFileName = "expiration-settings.json";
     private const string DefaultTimeZone = "UTC";
     private const int DefaultRunHour = 12;
@@ -30,6 +27,7 @@ public static partial class NotifServer
     public static async Task<int> Main(string[] args)
     {
         bool once = args.Any(a => string.Equals(a, "--once", StringComparison.OrdinalIgnoreCase));
+        bool dryRun = args.Any(a => string.Equals(a, "--dry-run", StringComparison.OrdinalIgnoreCase));
         bool help = args.Any(a => string.Equals(a, "--help", StringComparison.OrdinalIgnoreCase)
             || string.Equals(a, "-h", StringComparison.OrdinalIgnoreCase));
 
@@ -55,24 +53,25 @@ public static partial class NotifServer
 
         ConfigureLogDirectory(settings.LogDirectory);
         Console.WriteLine($"Logging to: {GetCurrentLogFilePath()}");
-        LogInfo($"ChemClassify NotifServer starting (once={once}).");
+        LogInfo($"ChemClassify NotifServer starting (once={once}, dryRun={dryRun}).");
         LogInfo($"Config file: {configPath}");
         LogSettings(settings);
 
         try
         {
-            EnsureFirebase(settings.ProjectId);
+            BackendServices.EnsureDatabaseReady();
         }
         catch (Exception ex)
         {
-            LogWarn($"Firebase init failed: {ex.Message}");
+            LogWarn($"Database init failed: {ex.Message}");
             return 1;
         }
 
         if (once)
         {
-            bool ok = await RunDigestAsync(settings);
-            await RunMailboxMaintenanceAsync(settings);
+            bool ok = await RunAlertAsync(settings, dryRun);
+            if (!dryRun)
+                await RunMailboxMaintenanceAsync(settings);
             return ok ? 0 : 2;
         }
 
@@ -106,7 +105,7 @@ public static partial class NotifServer
             ConfigureLogDirectory(settings.LogDirectory);
 
             TimeSpan delay = DelayUntilNextRun(settings.TimeZone, settings.RunHour);
-            LogInfo($"Next digest in {FormatDelay(delay)} (run {settings.RunHour:00}:00 {settings.TimeZone.Id}).");
+            LogInfo($"Next alert in {FormatDelay(delay)} (run {settings.RunHour:00}:00 {settings.TimeZone.Id}).");
 
             try
             {
@@ -119,13 +118,13 @@ public static partial class NotifServer
 
             if (!TryLoadSettings(configPath, out settings, out settingsError))
             {
-                LogWarn($"Configuration error before digest — skipping this run: {settingsError}");
+                LogWarn($"Configuration error before alert — skipping this run: {settingsError}");
                 continue;
             }
 
             ConfigureLogDirectory(settings.LogDirectory);
             LogSettings(settings);
-            await RunDigestAsync(settings);
+            await RunAlertAsync(settings, dryRun: false);
             await RunMailboxMaintenanceAsync(settings);
         }
 
@@ -133,50 +132,35 @@ public static partial class NotifServer
         return 0;
     }
 
-    private static async Task<bool> RunDigestAsync(ServerSettings settings)
+    private static async Task<bool> RunAlertAsync(ServerSettings settings, bool dryRun)
     {
-        LogInfo("Running expiration digest…");
+        LogInfo("Running notification alert…");
 
         try
         {
-            FirestoreDb db = FirestoreDb.Create(settings.ProjectId);
-            DateTime thresholdUtc = DateTime.UtcNow.Date.AddDays(settings.NotifyWindowDays + 1);
+            BackendServices.EnsureDatabaseReady();
+            List<NotifAlertHit> hits = await CollectAlertHitsAsync(settings.NotifyWindowDays);
 
-            Query query = db.Collection(CollectionName)
-                .WhereEqualTo("active", true)
-                .WhereLessThanOrEqualTo("expiresAt", Timestamp.FromDateTime(DateTime.SpecifyKind(thresholdUtc, DateTimeKind.Utc)));
+            LogInfo($"Alert evaluation produced {hits.Count} alert row(s).");
 
-            QuerySnapshot snap = await query.GetSnapshotAsync();
-            List<ExpiringSds> rows = new();
-
-            foreach (DocumentSnapshot doc in snap.Documents)
-            {
-                if (TryParse(doc, out ExpiringSds row))
-                    rows.Add(row);
-            }
-
-            rows.Sort((a, b) => a.ExpiresAt.CompareTo(b.ExpiresAt));
-
-            DateTime todayUtc = DateTime.UtcNow.Date;
-            int expired = rows.Count(r => r.ExpiresAt.Date < todayUtc);
-            int expiring = rows.Count - expired;
-
-            LogInfo(
-                $"Firestore returned {rows.Count} active SDS with expiresAt <= {thresholdUtc:yyyy-MM-dd} UTC "
-                + $"({expired} expired, {expiring} within {settings.NotifyWindowDays} days).");
-
-            if (rows.Count == 0)
+            if (hits.Count == 0)
             {
                 LogInfo("Nothing to notify — skipping mail.");
                 return true;
             }
 
-            // One batched digest body for all SDS; one send per recipient (not per SDS).
-            string subject =
-                $"[ChemClassify] {rows.Count} SDS expiration alert(s) "
-                + $"({expired} expired / {expiring} within {settings.NotifyWindowDays}d)";
+            string subject = BuildAlertSubject(hits);
+            string body = BuildSectionedAlertBody(hits, settings.NotifyWindowDays);
 
-            string body = BuildBody(rows, settings.NotifyWindowDays, todayUtc);
+            if (dryRun)
+            {
+                LogInfo($"Dry run — subject: {subject}");
+                LogInfo("Dry run — body:");
+                foreach (string line in body.Split('\n'))
+                    LogInfo(line.TrimEnd('\r'));
+                return true;
+            }
+
             int sent = 0;
             int failed = 0;
 
@@ -202,103 +186,14 @@ public static partial class NotifServer
                 }
             }
 
-            LogInfo($"Digest finished (sent={sent}, failed={failed}).");
+            LogInfo($"Alert finished (sent={sent}, failed={failed}).");
             return failed == 0;
         }
         catch (Exception ex)
         {
-            LogWarn($"Digest failed: {ex.Message}");
+            LogWarn($"Alert failed: {ex.Message}");
             return false;
         }
-    }
-
-    private static string BuildBody(IReadOnlyList<ExpiringSds> rows, int windowDays, DateTime todayUtc)
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine("ChemClassify SDS expiration digest");
-        sb.AppendLine($"Generated (UTC): {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}");
-        sb.AppendLine($"Notify window: {windowDays} day(s)");
-        sb.AppendLine();
-
-        sb.AppendLine("--- Already expired ---");
-        AppendSection(sb, rows.Where(r => r.ExpiresAt.Date < todayUtc).ToList(), todayUtc);
-        sb.AppendLine();
-        sb.AppendLine($"--- Expiring within {windowDays} day(s) ---");
-        AppendSection(sb, rows.Where(r => r.ExpiresAt.Date >= todayUtc).ToList(), todayUtc);
-        sb.AppendLine();
-        sb.AppendLine("Open the ChemClassify desktop app → chemicals library for details / PDF links.");
-        return sb.ToString();
-    }
-
-    private static void AppendSection(StringBuilder sb, IReadOnlyList<ExpiringSds> rows, DateTime todayUtc)
-    {
-        if (rows.Count == 0)
-        {
-            sb.AppendLine("(none)");
-            return;
-        }
-
-        foreach (ExpiringSds row in rows)
-        {
-            int days = (row.ExpiresAt.Date - todayUtc).Days;
-            string relative = days < 0 ? $"{Math.Abs(days)}d overdue" : days == 0 ? "expires today" : $"in {days}d";
-            sb.AppendLine(
-                $"- {row.DisplayName} | id={row.SdsId} | expires={row.ExpiresAt:yyyy-MM-dd} ({relative})"
-                + (string.IsNullOrWhiteSpace(row.CasNumber) ? "" : $" | CAS={row.CasNumber}"));
-        }
-    }
-
-    private static bool TryParse(DocumentSnapshot doc, out ExpiringSds row)
-    {
-        row = default;
-        if (!doc.Exists)
-            return false;
-
-        Dictionary<string, object> data = doc.ToDictionary();
-        string sdsId = GetString(data, "sdsId") ?? doc.Id;
-        string? displayName = GetString(data, "displayName");
-        if (string.IsNullOrWhiteSpace(displayName))
-            return false;
-
-        DateTime? expires = GetTimestampUtc(data, "expiresAt");
-        if (expires is null)
-            return false;
-
-        row = new ExpiringSds(sdsId, displayName, expires.Value, GetString(data, "casNumber"));
-        return true;
-    }
-
-    private static string? GetString(Dictionary<string, object> data, string key)
-        => data.TryGetValue(key, out object? value) ? value?.ToString() : null;
-
-    private static DateTime? GetTimestampUtc(Dictionary<string, object> data, string key)
-    {
-        if (!data.TryGetValue(key, out object? value) || value is null)
-            return null;
-        if (value is Timestamp ts)
-            return ts.ToDateTime();
-        if (value is DateTime dt)
-            return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
-        return null;
-    }
-
-    private static void EnsureFirebase(string projectId)
-    {
-        if (FirebaseApp.DefaultInstance != null)
-            return;
-
-        string? credPath = Environment.GetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS");
-        if (string.IsNullOrWhiteSpace(credPath) || !File.Exists(credPath))
-        {
-            throw new InvalidOperationException(
-                "GOOGLE_APPLICATION_CREDENTIALS must point to an existing service-account JSON file.");
-        }
-
-        FirebaseApp.Create(new AppOptions
-        {
-            Credential = GoogleCredential.GetApplicationDefault(),
-            ProjectId = projectId
-        });
     }
 
     private static bool TryResolveConfigPath(string[] args, out string configPath, out string? error)
@@ -500,11 +395,12 @@ public static partial class NotifServer
     {
         Console.WriteLine(
             """
-            ChemClassify NotifServer — daily SDS expiration digest (no Godot).
+            ChemClassify NotifServer — daily rule-based notification alert (no Godot).
 
             Usage:
               ExpirationNotifServer                    Run as daemon (wait until runHour, then every day)
-              ExpirationNotifServer --once             Run one digest now and exit
+              ExpirationNotifServer --once             Run one alert now and exit
+              ExpirationNotifServer --once --dry-run   Evaluate rules and log body; do not send mail
               ExpirationNotifServer --config <path>    Use a settings file other than ./expiration-settings.json
               ExpirationNotifServer --help             Show this help
 
@@ -523,10 +419,12 @@ public static partial class NotifServer
               Daemon reloads the file each cycle (no restart needed for schedule/recipients/log dir).
 
             Mail behavior:
-              One batched digest listing all matching SDS; one email per recipient (not per SDS).
+              One batched alert grouped by rule section; one email per recipient.
+              Requires __SYSTEM__/alert with non-empty sources[] and rules[] (desktop Notification setup).
+              Inventory paths must be __DATA__/{partition}/items or another path ResolveInventoryCollection accepts.
               Zero matches → no mail sent.
 
-            Mailbox maintenance (after each digest cycle, via IMAP on SMTP_HOST):
+            Mailbox maintenance (after each alert cycle, via IMAP on SMTP_HOST):
               Prune Sent messages older than 1 day. Never delete Inbox.
               If Inbox has any mail, log a warning and email recipients (private SMTP account).
 
@@ -541,7 +439,7 @@ public static partial class NotifServer
               IMAP_PORT                        IMAP port on SMTP_HOST (default 993, like SMTP_PORT)
 
             Optional environment:
-              ALLOWED_DOMAIN                   Used by MailData.Verify (optional for digest send)
+              ALLOWED_DOMAIN                   Used by MailData.Verify (optional for alert send)
 
             Autostart (Windows VM): see DevManual.Setup.md
             """);
@@ -580,9 +478,4 @@ public static partial class NotifServer
         int NotifyWindowDays,
         string LogDirectory);
 
-    private readonly record struct ExpiringSds(
-        string SdsId,
-        string DisplayName,
-        DateTime ExpiresAt,
-        string? CasNumber);
 }
