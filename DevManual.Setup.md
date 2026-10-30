@@ -1,6 +1,6 @@
 # Expiration notification server — setup
 
-Standalone **.NET 8** console repo (not part of ChemClassify / Godot). Once per day at a configurable local hour (default **12:00**), it loads **`__SYSTEM__/alert`**, evaluates configured **rules** against **sources** (partitioned inventory paths such as `__DATA__/default/items`), then emails a **batched alert** (one mail per recipient) via the local `Mail` / `MailData` copies under namespace `ExpirationServer`.
+Standalone **.NET 8** console repo (not part of ChemClassify / Godot). Once per day at a configurable local hour (default **12:00**), it loads **`--SYSTEM--/alert`**, evaluates configured **rules** against **sources** (partitioned inventory paths such as `--DATA--/default/items`), then emails a **batched alert** (one mail per recipient) via the local `Mail` / `MailData` copies under namespace `ExpirationServer`.
 
 ## Layout
 
@@ -33,7 +33,7 @@ Apply User env vars once via `chem-classify`’s `Apply-ChemClassifyEnv.ps1` + `
 | `IMAP_PORT` | no | IMAP port on `SMTP_HOST` (default `993`; used only by `NotifServer.MailCleanup`) |
 | `ALLOWED_DOMAIN` | no | Only if you call `MailData.Verify` |
 
-Firestore: seed **`__SYSTEM__/alert`** (rules + sources) via desktop **Notification setup**. Per-source composite indexes may be required when Firestore prompts (typically `active` on each inventory collection).
+Firestore: seed **`--SYSTEM--/alert`** (rules + sources) via desktop **Notification setup**. Per-source composite indexes may be required when Firestore prompts (typically `active` on each inventory collection).
 
 ### Admin settings (JSON file)
 
@@ -51,7 +51,6 @@ Example:
 {
   "timeZone": "SA Pacific Standard Time",
   "runHour": 12,
-  "notifyWindowDays": 30,
   "logDirectory": "logs",
   "recipients": [
     "lab-manager@universidad.edu"
@@ -63,11 +62,12 @@ Example:
 | --- | --- | --- |
 | `timeZone` | no (default `UTC`) | Windows e.g. `SA Pacific Standard Time`; Linux e.g. `America/Bogota` |
 | `runHour` | no (default `12`) | Local hour `0`–`23` in `timeZone` |
-| `notifyWindowDays` | no (default `30`) | Days ahead to include (`1`–`365`) |
 | `logDirectory` | no (default `logs`) | Folder for monthly TXT logs; relative paths are under the exe directory |
 | `recipients` | yes | Non-empty JSON array of emails |
 
-The daemon **reloads** this file each cycle, so schedule / window / recipients can change without restarting.
+Date-rule **lead days** live on each rule in Firestore (`--SYSTEM--/alert`), configured from desktop **Notification setup**.
+
+The daemon **reloads** this file each cycle, so schedule and recipients can change without restarting.
 
 ### Time zone examples
 

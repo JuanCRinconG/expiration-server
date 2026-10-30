@@ -24,6 +24,7 @@
     <Compile Include="..\chem-classify\Backend\InventoryFieldReaders.cs" Link="Backend\InventoryFieldReaders.cs" />
     <Compile Include="..\chem-classify\Backend\DataTools.cs" Link="Backend\DataTools.cs" />
     <Compile Include="..\chem-classify\Backend\ItemRecords.cs" Link="Backend\ItemRecords.cs" />
+    <Compile Include="..\chem-classify\Backend\NotifRule.cs" Link="Backend\NotifRule.cs" />
     <Compile Include="..\chem-classify\Backend\StorageService.cs" Link="Backend\StorageService.cs" />
     <Compile Include="..\chem-classify\Backend\Firebase\FirebaseConnect.cs" Link="Backend\Firebase\FirebaseConnect.cs" />
     <Compile Include="..\chem-classify\Backend\Firebase\FirebaseDataTools.cs" Link="Backend\Firebase\FirebaseDataTools.cs" />

@@ -6,7 +6,7 @@ using FirebaseAdmin;
 
 
 /// <summary>
-/// Standalone (non-Godot) daily job: load <c>__SYSTEM__/alert</c>, evaluate configured rules via
+/// Standalone (non-Godot) daily job: load <c>--SYSTEM--/alert</c>, evaluate configured rules via
 /// <see cref="BackendServices.Database"/>, and email a sectioned alert via <see cref="Backend.Mail"/>.
 /// Mailbox IMAP maintenance lives in a partial.
 /// </summary>
@@ -15,8 +15,6 @@ public static partial class NotifServer
     private const string DefaultConfigFileName = "expiration-settings.json";
     private const string DefaultTimeZone = "UTC";
     private const int DefaultRunHour = 12;
-    private const int DefaultNotifyWindowDays = 30;
-
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -139,7 +137,7 @@ public static partial class NotifServer
         try
         {
             BackendServices.EnsureDatabaseReady();
-            List<NotifAlertHit> hits = await CollectAlertHitsAsync(settings.NotifyWindowDays);
+            List<NotifAlertHit> hits = await CollectAlertHitsAsync();
 
             LogInfo($"Alert evaluation produced {hits.Count} alert row(s).");
 
@@ -150,7 +148,7 @@ public static partial class NotifServer
             }
 
             string subject = BuildAlertSubject(hits);
-            string body = BuildSectionedAlertBody(hits, settings.NotifyWindowDays);
+            string body = BuildSectionedAlertBody(hits);
 
             if (dryRun)
             {
@@ -244,7 +242,6 @@ public static partial class NotifServer
             user.Recipients,
             user.TimeZone,
             user.RunHour,
-            user.NotifyWindowDays,
             user.LogDirectory);
         return true;
     }
@@ -311,13 +308,6 @@ public static partial class NotifServer
             return false;
         }
 
-        int windowDays = dto.NotifyWindowDays ?? DefaultNotifyWindowDays;
-        if (windowDays is < 1 or > 365)
-        {
-            error = "notifyWindowDays must be an integer 1–365.";
-            return false;
-        }
-
         if (dto.Recipients is null || dto.Recipients.Count == 0)
         {
             error = "recipients must be a non-empty JSON array of email addresses.";
@@ -340,7 +330,7 @@ public static partial class NotifServer
             ? DefaultLogDirectoryName
             : dto.LogDirectory.Trim();
 
-        user = new UserSettingsFile(recipients, tz, runHour, windowDays, logDirectory);
+        user = new UserSettingsFile(recipients, tz, runHour, logDirectory);
         return true;
     }
 
@@ -350,7 +340,6 @@ public static partial class NotifServer
         LogInfo($"Recipients:  {string.Join(", ", settings.AlertRecipients)}");
         LogInfo($"Timezone:    {settings.TimeZone.Id}");
         LogInfo($"Run hour:    {settings.RunHour:00}:00 (local)");
-        LogInfo($"Window days: {settings.NotifyWindowDays}");
         LogInfo($"Log dir:     {ResolveLogDirectory(settings.LogDirectory)}");
     }
 
@@ -410,7 +399,6 @@ public static partial class NotifServer
                                    Windows: "SA Pacific Standard Time"
                                    Linux:   "America/Bogota"
                 runHour            Local hour 0–23 (default 12)
-                notifyWindowDays   Days ahead to include (default 30)
                 recipients         JSON array of alert emails (required)
                 logDirectory       Folder for monthly TXT logs (default "logs").
                                    Relative paths are under the exe directory; absolute OK.
@@ -420,8 +408,8 @@ public static partial class NotifServer
 
             Mail behavior:
               One batched alert grouped by rule section; one email per recipient.
-              Requires __SYSTEM__/alert with non-empty sources[] and rules[] (desktop Notification setup).
-              Inventory paths must be __DATA__/{partition}/items or another path ResolveInventoryCollection accepts.
+              Requires --SYSTEM--/alert with non-empty sources[] and rules[] (desktop Notification setup).
+              Inventory paths must be --DATA--/{partition}/items or another path ResolveInventoryCollection accepts.
               Zero matches → no mail sent.
 
             Mailbox maintenance (after each alert cycle, via IMAP on SMTP_HOST):
@@ -453,9 +441,6 @@ public static partial class NotifServer
         [JsonPropertyName("runHour")]
         public int? RunHour { get; set; }
 
-        [JsonPropertyName("notifyWindowDays")]
-        public int? NotifyWindowDays { get; set; }
-
         [JsonPropertyName("recipients")]
         public List<string>? Recipients { get; set; }
 
@@ -467,7 +452,6 @@ public static partial class NotifServer
         IReadOnlyList<string> Recipients,
         TimeZoneInfo TimeZone,
         int RunHour,
-        int NotifyWindowDays,
         string LogDirectory);
 
     private readonly record struct ServerSettings(
@@ -475,7 +459,6 @@ public static partial class NotifServer
         IReadOnlyList<string> AlertRecipients,
         TimeZoneInfo TimeZone,
         int RunHour,
-        int NotifyWindowDays,
         string LogDirectory);
 
 }

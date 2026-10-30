@@ -7,7 +7,7 @@ public static partial class NotifServer
 {
     private const string DefaultSectionLabel = "alerts";
 
-    private static async Task<List<NotifAlertHit>> CollectAlertHitsAsync(int notifyWindowDays)
+    private static async Task<List<NotifAlertHit>> CollectAlertHitsAsync()
     {
         var hits = new List<NotifAlertHit>();
         DateTime referenceUtc = DateTime.UtcNow;
@@ -24,7 +24,7 @@ public static partial class NotifServer
 
         if (config.Sources.Count == 0)
         {
-            LogWarn("Alert config has no sources[] — add inventory paths in __SYSTEM__/alert.");
+            LogWarn("Alert config has no sources[] — add inventory paths in --SYSTEM--/alert.");
             return hits;
         }
 
@@ -35,7 +35,7 @@ public static partial class NotifServer
             return hits;
         }
 
-        await CollectRuleBasedHitsAsync(hits, config.Sources, rules, config, notifyWindowDays, referenceUtc);
+        await CollectRuleBasedHitsAsync(hits, config.Sources, rules, referenceUtc);
         return hits;
     }
 
@@ -63,8 +63,6 @@ public static partial class NotifServer
         List<NotifAlertHit> hits,
         IReadOnlyList<NotifAlertSource> sources,
         IReadOnlyList<NotifRule> rules,
-        NotifAlertConfig? config,
-        int notifyWindowDays,
         DateTime referenceUtc)
     {
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -91,8 +89,10 @@ public static partial class NotifServer
 
                 foreach (NotifRule rule in rules)
                 {
-                    NotifRule evalRule = ResolveRuleForEvaluation(rule, config, notifyWindowDays);
-                    NotifRuleMatchResult match = NotifRuleSupport.Evaluate(evalRule, item.Fields, referenceUtc);
+                    if (!rule.AppliesToSource(source))
+                        continue;
+
+                    NotifRuleMatchResult match = NotifRuleSupport.Evaluate(rule, item.Fields, referenceUtc);
                     if (!match.Matched)
                         continue;
 
@@ -104,26 +104,6 @@ public static partial class NotifServer
                 }
             }
         }
-    }
-
-    private static NotifRule ResolveRuleForEvaluation(
-        NotifRule rule,
-        NotifAlertConfig? config,
-        int notifyWindowDays)
-    {
-        if (rule.Kind != NotifRuleKind.DateWarnBefore)
-            return rule;
-
-        bool useLocalWindow = config is not null
-            && string.Equals(
-                config.NotifyWindowDaysSource,
-                DatabaseTopology.NotifAlertFields.NotifyWindowDaysSourceLocalSettings,
-                StringComparison.OrdinalIgnoreCase);
-
-        if (!useLocalWindow && rule.LeadDays > 0)
-            return rule;
-
-        return rule.WithLeadDays(notifyWindowDays);
     }
 
     private static bool TryReadItemIdentity(
@@ -152,12 +132,11 @@ public static partial class NotifServer
             detail ?? "Matched");
     }
 
-    private static string BuildSectionedAlertBody(IReadOnlyList<NotifAlertHit> hits, int notifyWindowDays)
+    private static string BuildSectionedAlertBody(IReadOnlyList<NotifAlertHit> hits)
     {
         var sb = new StringBuilder();
         sb.AppendLine("ChemClassify notification alert");
         sb.AppendLine($"Generated (UTC): {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}");
-        sb.AppendLine($"Local notify window (days, dateWarnBefore + localSettings): {notifyWindowDays}");
         sb.AppendLine();
 
         IEnumerable<IGrouping<string, NotifAlertHit>> sections = hits

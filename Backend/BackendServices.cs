@@ -8,5 +8,5 @@ public static class BackendServices
 {
     public static DataTools Database { get; } = new FirebaseDataTools();
 
-    public static void EnsureDatabaseReady() => Database.EnsureInitialized();
+    public static void EnsureDatabaseReady() => Database.InitializeDatabase();
 }
