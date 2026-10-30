@@ -16,14 +16,15 @@ Standalone **.NET 8** console repo (not part of ChemClassify / Godot). Once per 
 | `expiration-settings.example.json` | Template for admin settings (copy → `expiration-settings.json`) |
 | `Register-Autostart.ps1` | Windows Task Scheduler at logon |
 | `ExpirationServer.csproj` | Console project (exe name `ExpirationNotifServer`) |
+| `Backend/` Firebase read files | Pasted from chem-classify by `SyncProjects` (`DatabaseTopology`, `FirebaseDataTools`, and the other read sources). Committed in this repo. |
 
-All C# types live in namespace **`ExpirationServer`**.
+Server-owned types live in the global namespace (`NotifServer`). Pasted read types and this repo’s `BackendServices`, `Mail`, and `BackendLog` live in namespace **`Backend`**.
 
 ## Prerequisites
 
 ### Environment (secrets / infra)
 
-Apply User env vars once via `chem-classify`’s `Apply-ChemClassifyEnv.ps1` + `env.secrets.json` (full disk paths as top-level keys; fire-and-forget — see that repo’s Quick setup). Prefer **At log on** Task Scheduler so those User variables are available.
+Apply User env vars once via `chem-classify`’s `DeveloperTools/ConfigureEnvironments/ConfigureEnvironments.ps1` + `env.secrets.json` (full disk paths as top-level keys; fire-and-forget — see that repo’s Quick setup). Prefer **At log on** Task Scheduler so those User variables are available.
 
 | Variable | Required | Purpose |
 | --- | --- | --- |

@@ -18,17 +18,5 @@
     <Content Include="expiration-settings.example.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
-  <!-- Shared database spine from chem-classify (no auth, OneDrive, or desktop partials). -->
-  <ItemGroup>
-    <Compile Include="..\chem-classify\Backend\DatabaseTopology.cs" Link="Backend\DatabaseTopology.cs" />
-    <Compile Include="..\chem-classify\Backend\InventoryFieldReaders.cs" Link="Backend\InventoryFieldReaders.cs" />
-    <Compile Include="..\chem-classify\Backend\DataTools.cs" Link="Backend\DataTools.cs" />
-    <Compile Include="..\chem-classify\Backend\ItemRecords.cs" Link="Backend\ItemRecords.cs" />
-    <Compile Include="..\chem-classify\Backend\NotifRule.cs" Link="Backend\NotifRule.cs" />
-    <Compile Include="..\chem-classify\Backend\StorageService.cs" Link="Backend\StorageService.cs" />
-    <Compile Include="..\chem-classify\Backend\Firebase\FirebaseConnect.cs" Link="Backend\Firebase\FirebaseConnect.cs" />
-    <Compile Include="..\chem-classify\Backend\Firebase\FirebaseDataTools.cs" Link="Backend\Firebase\FirebaseDataTools.cs" />
-    <Compile Include="..\chem-classify\Backend\Firebase\InventoryDocumentPipeline.cs" Link="Backend\Firebase\InventoryDocumentPipeline.cs" />
-    <Compile Include="..\chem-classify\Backend\Firebase\NotifAlertFirestoreSupport.cs" Link="Backend\Firebase\NotifAlertFirestoreSupport.cs" />
-  </ItemGroup>
+  <!-- Shared Firebase read sources are pasted into this repo by chem-classify SyncProjects. The SDK compiles them. -->
 </Project>
